@@ -1,6 +1,3 @@
-
-
-
 demo <- trd_week %>%
   filter(Markettype == c(1, 4)) %>% 
   # 流通股数和换手率

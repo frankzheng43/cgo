@@ -2,8 +2,6 @@ library(haven)
 #trd_dalyr <- read_sas("F:/Rproject/CGO/data/trd_dalyr.sas7bdat", encoding = "UTF-8")
 library(tidyquant)
 library(lubridate)
-need <- c("Stkcd", "Trddt", "Opnprc", "Hiprc", "Loprc", "Clsprc", "Dnshrtrd", 
-          "Dsmvosd", "Adjprcwd", "Markettype")
 trd <- trd_dalyr %>%
   select(1:7, 9, 13, 15) %>%
   filter(Markettype == c(1, 4)) %>% # 流通股数和换手率

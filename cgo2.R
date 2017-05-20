@@ -4,9 +4,6 @@ newcgo <- function(df, k) {
   P <- df$Wclsprc
 }
 
-
-
-
 cgo2 <- function(V, P, k, id) {
   prodc <- 0
   prodd <- 0
