@@ -1,6 +1,7 @@
 # 调仓
 library(tidyquant)
 library(rio)
+
 trd_selected <- import("./data/trd_selected.feather") #
 position <- trd_selected %>%
   select(Stkcd, group, cgo,  Opndt, Clsdt, Wopnprc, Wclsprc, Wsmvosd) 
@@ -55,3 +56,5 @@ temp <- summarise(group_by(position, group), number = n())
 
 export(full_position, "./data/full_position.csv")
 export(full_position, "./data/full_position.feather")
+
+full_position <- import("./data/full_position.feather")
