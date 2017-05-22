@@ -4,18 +4,19 @@ library(rio)
 
 trd_selected <- import("./data/trd_selected.feather") #
 position <- trd_selected %>%
-  select(Stkcd, group, cgo,  Opndt, Clsdt, Wopnprc, Wclsprc, Wsmvosd) 
-position <- position %>%
+  select(Stkcd, group, cgo,  Opndt, Clsdt, Wopnprc, Wclsprc, Wsmvosd) %>%
   group_by(group) %>%
-  filter(n() >= 30 ) %>% #
+  #filter(n() >= 30 ) %>% #
   mutate(Opndt = as.Date.character(Opndt)) %>%
-  mutate(group1 = substr(as.character(Opndt-30), 1,7)) %>%
+  mutate(group1 = substr(as.character(Opndt %m-% months(1)), 1,7)) %>%
   ungroup()
 position1 <- position %>%
   select(-group1)
 position2 <- position %>%
   select(-group)
 ini = 2000000 # initial position
+fee = 0.0002 # left
+
 full_position <- full_join(position1, position2, by = c("Stkcd", c("group" = "group1"))) %>%
   group_by(group) %>%
   arrange(group) %>%
@@ -29,11 +30,11 @@ p_split <- split(full_position, full_position$group)
 p_split[1] <- NULL
 # initialize
 p_split[[1]]$holding <- ini
-p_split[[1]]$hand <- p_split[[1]]$holding * p_split[[1]]$weight / p_split[[1]]$Wopnprc.x
+p_split[[1]]$hand <- p_split[[1]]$holding * (1-fee) * p_split[[1]]$weight / p_split[[1]]$Wclsprc.x
 # calculate holding and stock in hand
 for (i in 2 : length(p_split)) {
-  p_split[[i]]$holding <- sum(p_split[[i-1]]$hand * p_split[[i]]$Wopnprc.x, na.rm = TRUE)
-  p_split[[i]]$hand <- p_split[[i]]$holding * p_split[[i]]$weight / p_split[[i]]$Wopnprc.x
+  p_split[[i]]$holding <- sum(p_split[[i-1]]$hand * p_split[[i-1]]$Wclsprc.x, na.rm = TRUE) # 错了
+  p_split[[i]]$hand <- p_split[[i]]$holding * (1-fee) * p_split[[i]]$weight / p_split[[i]]$Wclsprc.x
 }
 # calculate holding and stock in hand next month
 for (i in 1 :(length(p_split) - 1)) {
@@ -52,6 +53,8 @@ full_position[,c("hand", "hand1")] <-
 full_position <- full_position %>%
   mutate(hand_dif = hand1-hand)
 
+
+##
 temp <- summarise(group_by(position, group), number = n())
 
 export(full_position, "./data/full_position.csv")
