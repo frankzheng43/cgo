@@ -4,25 +4,31 @@ library(tidyquant)
 library(rio)
 
 # merge cgo/weekly data 
-cgo <- import("./data/cgo.sas7bdat", encoding = "UTF-8")  # cgo data [raw data]
-trd_week <- import("./data/trd_week.sas7bdat", encoding = "UTF-8") # weekly trade data [raw data]
+cgo <- import("./data/cgo1.sas7bdat", encoding = "UTF-8") %>% # cgo data [raw data]
+  select(Stkcd, Trdwnt, cgo) 
+
+trd_week <- import("./data/trd_week.sas7bdat", encoding = "UTF-8") %>%# weekly trade data [raw data]
+  select(-Capchgdt, -Ndaytrd, -Wretnd)
 
 trd_cgo <- left_join(trd_week, cgo , by = c("Stkcd", "Trdwnt")) %>%
-  na.omit() %>% 
+  na.omit() %>%
   filter(Markettype == "1"| Markettype == "4") %>% 
   mutate(Stkcd = paste(as.character(Stkcd), if_else(Markettype == 1, ".SH", ".SZ"), sep = "")) %>%
-  mutate(group = substr(Clsdt,1,7)) # 试试周 substr(Opndt,1,7)
-
-# select stock 
-trd_last <- trd_cgo %>%
+  mutate(group = substr(Clsdt,1,7), group_cgo = substr(as.character(ymd(Clsdt) %m+% months(1)), 1, 7)) %>%
   group_by(Stkcd, group) %>%
   arrange(Clsdt) %>%
-  filter(row_number() == n())
-
-trd_selected <- trd_last %>%
+  filter(row_number() == n()) %>%
+  ungroup()
+cgo_temp <- trd_cgo %>% select(Stkcd, cgo, group_cgo)
+trd_cgo <- trd_cgo %>% rename(cgo1 = cgo) %>% select(-group_cgo) 
+trd_cgo <- left_join(trd_cgo, cgo_temp, by = c("Stkcd", "group" = "group_cgo")) %>% 
+  na.omit() %>%
+  arrange(Stkcd)
+remove(cgo_temp)
+trd_selected <- trd_cgo %>%
   arrange(group, desc(cgo)) %>%
   group_by(group) %>%
-  filter(row_number() <=30) # selected stock
+  filter(row_number() <= 30) # selected stock
 
 # export and import data
 export(trd_selected,"./data/trd_selected.feather")
@@ -33,15 +39,60 @@ trd_dalyr <- import("./data/trd_dalyr.sas7bdat", encoding = "UTF-8") # daily tra
 trd_dalyr <- trd_dalyr %>% 
   mutate(Trddt = as.Date.character(Trddt), Trddt1 = Trddt) 
 trd_dalyr$Trddt1 <- trd_dalyr$Trddt1 %m-% months(1)
-#mutate(Trddt1 = as.Date.character(Trddt), Trddt2 = as.Date.character(Trddt), Trddt = as.Date.character(Trddt))
-#month(trd_dalyr$Trddt1) = month(trd_dalyr$Trddt) - 1
-#month(trd_dalyr$Trddt2) = if_else(is.na(month(trd_dalyr$Trddt1)) == TRUE, month(trd_dalyr$Trddt - 10) - 1,  month(trd_dalyr$Trddt1))
+
 trd_dalyr <- trd_dalyr %>%
   mutate(group = substr(as.character(Trddt1), 1, 7))%>%
   mutate(Stkcd = paste(as.character(Stkcd), if_else(Markettype == 1, ".SH", ".SZ"), sep = ""))
 
 export(trd_dalyr, "./data/trd_dalyr.feather")
 trd_dalyr <- import("./data/trd_dalyr.feather")
+
+# close price
+cls_price <- trd_dalyr %>%
+  select(Stkcd, Trddt, cls_price = Clsprc, Markettype) %>%
+  mutate(group = substr(as.character(Trddt), 1, 7))%>%
+  mutate(Stkcd = paste(as.character(Stkcd), if_else(Markettype == 1, ".SH", ".SZ"), sep = "")) %>%
+  group_by(Stkcd, group) %>%
+  arrange(Trddt) %>%
+  filter(row_number() == n()) %>%
+  select(Stkcd, group, cls_price)
+export(cls_price, "./data/cls_price.feather")
+# gen groups
+position <- trd_selected %>%
+  select(Stkcd, group, Wsmvosd, Clsdt) %>%
+  group_by(group) %>%
+  mutate(Clsdt = as.Date.character(Clsdt)) %>%
+  mutate(group1 = substr(as.character(Clsdt %m-% months(1)), 1,7)) %>%
+  ungroup()
+
+# 
+
+position_cls <- left_join(position, cls_price, by = c("Stkcd", "group")) # NA?
+position_cls <- left_join(position_cls, cls_price, by = c("Stkcd", "group1" = "group"))
+position_cls <- position_cls %>%
+  select(-group1) %>%
+  group_by(group) %>%
+  mutate(weight = Wsmvosd/sum(Wsmvosd, na.rm = TRUE)) 
+
+position_cls[,c("weight")] <-
+  apply(position_cls[,c("weight")], 2, function(x){replace(x, is.na(x), 0)}) 
+
+
+# 
+
+p_cls_split <- split(position_cls, position_cls$group)
+ini <- 1000000
+fee <- 0.0002
+k <- 100
+p_cls_split[[k]]$start_holding = ini
+p_cls_split[[k]]$hand = p_cls_split[[k]]$start_holding * p_cls_split[[k]]$weight / p_cls_split[[k]]$cls_price.y
+p_cls_split[[k]]$end_holding = sum(p_cls_split[[k]]$hand * p_cls_split[[k]]$cls_price.x, na.rm = TRUE)
+
+for (i in (k+1) : length(p_cls_split)) {
+  p_cls_split[[i]]$start_holding <- as.numeric(p_cls_split[[i-1]][1, "end_holding"])
+  p_cls_split[[i]]$hand = p_cls_split[[i]]$start_holding * p_cls_split[[i]]$weight / p_cls_split[[i]]$cls_price.y
+  p_cls_split[[i]]$end_holding = sum(p_cls_split[[i]]$hand * p_cls_split[[i]]$cls_price.x, na.rm = TRUE)
+}
 
 # slice data
 p_mini <- full_position %>%

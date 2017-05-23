@@ -1,15 +1,3 @@
-# 调仓
-library(tidyquant)
-library(rio)
-
-trd_selected <- import("./data/trd_selected.feather") #
-position <- trd_selected %>%
-  select(Stkcd, group, cgo,  Opndt, Clsdt, Wopnprc, Wclsprc, Wsmvosd) %>%
-  group_by(group) %>%
-  #filter(n() >= 30 ) %>% #
-  mutate(Opndt = as.Date.character(Opndt)) %>%
-  mutate(group1 = substr(as.character(Opndt %m-% months(1)), 1,7)) %>%
-  ungroup()
 position1 <- position %>%
   select(-group1)
 position2 <- position %>%
@@ -28,6 +16,7 @@ full_position[,c("weight", "weight1")] <-
 p_split <- split(full_position, full_position$group) 
 # remove first element
 p_split[1] <- NULL
+# 
 # initialize
 p_split[[1]]$holding <- ini
 p_split[[1]]$hand <- p_split[[1]]$holding * (1-fee) * p_split[[1]]$weight / p_split[[1]]$Wclsprc.x
