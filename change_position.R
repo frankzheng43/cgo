@@ -1,3 +1,4 @@
+## depreciated 
 position1 <- position %>%
   select(-group1)
 position2 <- position %>%
