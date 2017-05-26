@@ -14,10 +14,10 @@ trd_cgo <- left_join(trd_week, cgo , by = c("Stkcd", "Trdwnt")) %>%
   na.omit() %>%
   filter(Markettype == "1"| Markettype == "4") %>% 
   mutate(Stkcd = paste(as.character(Stkcd), if_else(Markettype == 1, ".SH", ".SZ"), sep = "")) %>%
-  mutate(group = substr(Clsdt,1,7), group_cgo = substr(as.character(ymd(Clsdt) %m+% months(1)), 1, 7)) %>%
+  mutate(group = substr(Clsdt,1,7), group_cgo = substr(as.character(ymd(Clsdt) %m+% months(1)), 1, 7)) %>% ## !!!!!!!!!!!!!!!!!!!!!!!
   group_by(Stkcd, group) %>%
   arrange(Clsdt) %>%
-  filter(row_number() == n()) %>%
+  filter(row_number() == n()) %>% 
   ungroup()
 cgo_temp <- trd_cgo %>% select(Stkcd, cgo, group_cgo)
 trd_cgo <- trd_cgo %>% rename(cgo1 = cgo) %>% select(-group_cgo) 
@@ -33,33 +33,26 @@ trd_selected <- trd_cgo %>%
 # manipulate daily data
 trd_dalyr <- import("./data/trd_dt5.sas7bdat", encoding = "UTF-8") # daily trade data [raw data]
 trd_dalyr <- trd_dalyr %>% 
-  mutate(Trddt = as.Date.character(Trddt), Trddt1 = Trddt) 
-
-trd_dalyr$Trddt1 <- trd_dalyr$Trddt1 %m-% months(1)
-
-trd_dalyr <- trd_dalyr %>%
-  mutate(group = substr(as.character(Trddt1), 1, 7))%>%
+  mutate(group = substr(as.character(Trddt), 1, 7)) %>% ## !!!!!!!!!!!!!!!! Trddt 1991-04-01 group 1991-03 ！！！换成同期
   mutate(Stkcd = paste(as.character(Stkcd), if_else(Markettype == 1, ".SH", ".SZ"), sep = ""))
 
-# close price
+# close price 
 cls_price <- trd_dalyr %>%
-  select(Stkcd, Trddt, cls_price = Clsprc, Markettype, adj_price = Adjprcwd) %>%
-  mutate(group = substr(as.character(Trddt), 1, 7))%>%
+  select(Stkcd, Trddt, cls_price = Clsprc, Markettype, adj_price = Adjprcwd, group) %>% ## !!!!!! 当期
   group_by(Stkcd, group) %>%
   arrange(Trddt) %>%
-  filter(row_number() == n()) %>% # select the last day of every month
+  filter(row_number() == n()) %>% # select the last day of every month 
   select(Stkcd, group, cls_price, adj_price)
 
 # gen position
 position <- trd_selected %>%
   select(Stkcd, group, Wsmvosd, Clsdt) %>%
   group_by(group) %>%
-  mutate(Clsdt = as.Date.character(Clsdt)) %>%
-  mutate(group1 = substr(as.character(Clsdt %m-% months(1)), 1,7)) %>% # mismatch by one month in order to merge
+  mutate(group1 = substr(as.character(ymd(Clsdt) %m-% months(1)), 1,7)) %>% # mismatch by one month in order to merge
   ungroup()
 
 # position with close price
-position_cls <- left_join(position, cls_price, by = c("Stkcd", "group")) 
+position_cls <- left_join(position, cls_price, by = c("Stkcd", "group")) # cls_price.x 本月 cls_price.y 上月
 position_cls <- left_join(position_cls, cls_price, by = c("Stkcd", "group1" = "group"))
 position_cls <- position_cls %>%
   select(-group1) %>%
@@ -78,7 +71,7 @@ ini <- 1000000
 fee <- 0.0002
 k <- 100 # which month to start
 p_cls_split[[k]]$start_holding = ini
-p_cls_split[[k]]$start_hd = p_cls_split[[k]]$start_holding * p_cls_split[[k]]$weight
+p_cls_split[[k]]$start_hd = p_cls_split[[k]]$start_holding * p_cls_split[[k]]$weight # 
 p_cls_split[[k]]$end_hd = p_cls_split[[k]]$start_hd * p_cls_split[[k]]$adj_price.x / p_cls_split[[k]]$adj_price.y
 p_cls_split[[k]]$end_holding = sum(p_cls_split[[k]]$end_hd, na.rm = TRUE)
 p_cls_split[[k]]$hand = p_cls_split[[k]]$start_hd / p_cls_split[[k]]$cls_price.y
@@ -106,8 +99,9 @@ trd_day_selected <- arrange(trd_day_selected, Trddt)
 # summarise into one
 daily_position <- summarise(group_by(trd_day_selected, Trddt), money = sum(start_hd * Adjprcwd / adj_price.y , na.rm = TRUE)) %>% na.omit() 
 daily_position$return <- (daily_position$money - lag(daily_position$money))/ lag(daily_position$money) # final data for plotting
-temp1 <- daily_position %>% filter(!is.nan(return)) %>% na.omit() %>% filter( return != Inf)
-temp2 <- as.xts(temp1$return, temp1$Trddt)
+daily_position <- daily_position %>% filter(!is.nan(return)) %>% na.omit() %>% filter( return != Inf)
+daily_position <- daily_position %>% mutate(Trddt = ymd(Trddt))
+daily_position_xts<- as_xts(daily_position, date_col = Trddt)
 
 # export and import data
 export(trd_selected,"./data/trd_selected.feather")
