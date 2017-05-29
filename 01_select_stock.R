@@ -30,13 +30,20 @@ trd_selected <- trd_cgo %>%
   group_by(group) %>%
   filter(row_number() <= 30) # selected stock
 
+# gen position
+position <- trd_selected %>%
+  select(Stkcd, group, Wsmvosd, Clsdt) %>%
+  group_by(group) %>%
+  mutate(group1 = substr(as.character(ymd(Clsdt) %m-% months(1)), 1,7)) %>% # mismatch by one month in order to merge
+  ungroup()
+
 # manipulate daily data
 trd_dalyr <- import("./data/trd_dt5.sas7bdat", encoding = "UTF-8") # daily trade data [raw data]
 trd_dalyr <- trd_dalyr %>% 
   mutate(group = substr(as.character(Trddt), 1, 7)) %>% ## !!!!!!!!!!!!!!!! Trddt 1991-04-01 group 1991-03 ！！！换成同期
   mutate(Stkcd = paste(as.character(Stkcd), if_else(Markettype == 1, ".SH", ".SZ"), sep = ""))
 
-# close price 
+# close price every month
 cls_price <- trd_dalyr %>%
   select(Stkcd, Trddt, cls_price = Clsprc, Markettype, adj_price = Adjprcwd, group) %>% ## !!!!!! 当期
   group_by(Stkcd, group) %>%
@@ -44,12 +51,6 @@ cls_price <- trd_dalyr %>%
   filter(row_number() == n()) %>% # select the last day of every month 
   select(Stkcd, group, cls_price, adj_price)
 
-# gen position
-position <- trd_selected %>%
-  select(Stkcd, group, Wsmvosd, Clsdt) %>%
-  group_by(group) %>%
-  mutate(group1 = substr(as.character(ymd(Clsdt) %m-% months(1)), 1,7)) %>% # mismatch by one month in order to merge
-  ungroup()
 
 # position with close price
 position_cls <- left_join(position, cls_price, by = c("Stkcd", "group")) # cls_price.x 本月 cls_price.y 上月
@@ -68,8 +69,8 @@ p_cls_split <- split(position_cls, position_cls$group)
 
 # initial position
 ini <- 1000000
-fee <- 0.0002
 k <- 100 # which month to start
+fee <- 0
 p_cls_split[[k]]$start_holding = ini
 p_cls_split[[k]]$start_hd = p_cls_split[[k]]$start_holding * p_cls_split[[k]]$weight # 
 p_cls_split[[k]]$end_hd = p_cls_split[[k]]$start_hd * p_cls_split[[k]]$adj_price.x / p_cls_split[[k]]$adj_price.y
@@ -78,13 +79,17 @@ p_cls_split[[k]]$hand = p_cls_split[[k]]$start_hd / p_cls_split[[k]]$cls_price.y
 
 # loop over (stupid way)
 for (i in (k+1) : length(p_cls_split)) {
-  p_cls_split[[i]]$start_holding <- as.numeric(p_cls_split[[i-1]][1, "end_holding"])
-  p_cls_split[[i]]$start_hd = p_cls_split[[i]]$start_holding * p_cls_split[[i]]$weight
+  p_cls_split[[i]]$start_holding = as.numeric(p_cls_split[[i-1]][1, "end_holding"])
+  p_cls_split[[i]]$start_hd = (p_cls_split[[i]]$start_holding - fee)* p_cls_split[[i]]$weight
   p_cls_split[[i]]$end_hd = p_cls_split[[i]]$start_hd * p_cls_split[[i]]$adj_price.x / p_cls_split[[i]]$adj_price.y
-  p_cls_split[[i]]$end_holding = sum(p_cls_split[[i]]$end_hd, na.rm = TRUE)
+  fee_temp <- full_join(p_cls_split[[i]], p_cls_split[[i-1]][,c("Stkcd", "end_hd")], by = "Stkcd")
+  fee_temp[,c("end_hd.y", "start_hd")] <-
+    apply(fee_temp[,c("end_hd.y", "start_hd")], 2, function(x){replace(x, is.na(x), 0)}) 
+  fee_temp$diff <- fee_temp$start_hd - fee_temp$end_hd.y
+  fee <- sum((0.3) / 1000 * fee_temp[fee_temp$diff > 0,]$diff, na.rm = TRUE) - sum((0.3 + 1) / 1000 * fee_temp[fee_temp$diff < 0,]$diff, na.rm = TRUE) 
+  p_cls_split[[i]]$end_holding = sum(p_cls_split[[i]]$end_hd, na.rm = TRUE) - fee
   p_cls_split[[i]]$hand = p_cls_split[[i]]$start_hd / p_cls_split[[i]]$cls_price.y
 }
-
 # rebind list into dataframe
 position_cls <- bind_rows(p_cls_split)
 
