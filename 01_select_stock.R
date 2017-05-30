@@ -5,7 +5,7 @@ library(rio)
 
 # merge cgo/weekly data 
 cgo <- import("./data/cgo1.sas7bdat", encoding = "UTF-8") %>% # cgo data [raw data]
-  select(Stkcd, Trdwnt, cgo) 
+  select(Stkcd, Trdwnt, cgo, beta) 
 
 trd_week <- import("./data/trd_week.sas7bdat", encoding = "UTF-8") %>%# weekly trade data [raw data]
   select(-Capchgdt, -Ndaytrd, -Wretnd)
@@ -19,16 +19,18 @@ trd_cgo <- left_join(trd_week, cgo , by = c("Stkcd", "Trdwnt")) %>%
   arrange(Clsdt) %>%
   filter(row_number() == n()) %>% 
   ungroup()
-cgo_temp <- trd_cgo %>% select(Stkcd, cgo, group_cgo)
-trd_cgo <- trd_cgo %>% rename(cgo1 = cgo) %>% select(-group_cgo) 
+cgo_temp <- trd_cgo %>% select(Stkcd, cgo, group_cgo, beta)
+trd_cgo <- trd_cgo %>% rename(cgo1 = cgo) %>% select(-group_cgo, -beta) 
 trd_cgo <- left_join(trd_cgo, cgo_temp, by = c("Stkcd", "group" = "group_cgo")) %>% 
   na.omit() %>%
   arrange(Stkcd)
 remove(cgo_temp)
 trd_selected <- trd_cgo %>%
-  arrange(group, desc(cgo)) %>%
+  arrange(group, cgo) %>%
   group_by(group) %>%
-  filter(row_number() <= 30) # selected stock
+  filter(row_number() <= 1 / 5 * n()) %>%
+  arrange(beta) %>%
+  filter(row_number() <= 30) 
 
 # gen position
 position <- trd_selected %>%
